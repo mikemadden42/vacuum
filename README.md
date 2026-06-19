@@ -49,10 +49,12 @@ does not already exist.
 - A failure to move one file is reported but does not stop the run; remaining
   files are still processed and the program exits non-zero.
 
-> **Note:** Files are moved with `rename(2)`, so `source_dir` and `dest_base`
-> should live on the same filesystem. Paths are resolved relative to the current
-> working directory, so `vacuum` is normally run from the parent of
-> `source_dir` (the default `.`).
+- Files are moved with `rename(2)`; if that fails because the destination is on
+  a different filesystem (`EXDEV`), `vacuum` falls back to copying the contents
+  (preserving permission bits) and removing the original.
+
+> **Note:** Paths are resolved relative to the current working directory, so
+> `vacuum` is normally run from the parent of `source_dir` (the default `.`).
 
 ### Examples
 

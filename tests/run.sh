@@ -16,6 +16,10 @@ if [[ ! -x "$VACUUM" ]]; then
     exit 2
 fi
 
+# Resolve to an absolute path: the tests cd into temp dirs, so a relative
+# binary path would no longer be found.
+VACUUM="$(cd "$(dirname "$VACUUM")" && pwd)/$(basename "$VACUUM")"
+
 pass=0
 fail=0
 
@@ -84,6 +88,34 @@ if [[ "$out" != *"//"* ]]; then
     ok "trailing slash not duplicated in output"
 else
     no "trailing slash not duplicated in output (got: $out)"
+fi
+
+# --- cross-filesystem move (EXDEV fallback) ---
+# Needs a writable directory on a different filesystem; /dev/shm is the usual
+# candidate on Linux. Skipped when no second filesystem is available.
+skip() { printf 'skip - %s\n' "$1"; }
+xfs_dev() { stat -c '%d' "$1" 2>/dev/null; }
+otherfs=""
+for cand in /dev/shm /run/user/"$(id -u)"; do
+    if [[ -d "$cand" && -w "$cand" && "$(xfs_dev "$cand")" != "$(xfs_dev "$work")" ]]; then
+        otherfs="$cand"; break
+    fi
+done
+if [[ -n "$otherfs" ]]; then
+    src="$work/xdev"
+    dst=$(mktemp -d "$otherfs/vac.XXXXXX")
+    mkdir -p "$src"
+    ( cd "$src"; printf 'payload\n' > move.bin; chmod 640 move.bin
+      "$VACUUM" . "$dst" >/dev/null )
+    assert_file "$dst/bin/move.bin"          "EXDEV: file copied to other fs"
+    assert_absent "$src/move.bin"            "EXDEV: source removed"
+    [[ "$(cat "$dst/bin/move.bin" 2>/dev/null)" == "payload" ]] \
+        && ok "EXDEV: content intact" || no "EXDEV: content intact"
+    [[ "$(stat -c '%a' "$dst/bin/move.bin" 2>/dev/null)" == "640" ]] \
+        && ok "EXDEV: permissions preserved" || no "EXDEV: permissions preserved"
+    rm -rf "$dst"
+else
+    skip "EXDEV cross-filesystem move (no second filesystem available)"
 fi
 
 # --- CLI behavior ---

@@ -24,8 +24,11 @@ Tracked issues and improvements for `vacuum`.
 - [x] **Add CI.** `.github/workflows/ci.yml` builds with gcc and clang and runs
       the test suite via `ctest`.
 
+- [x] **`EXDEV` (cross-filesystem) fallback.** When `rename()` fails with
+      `EXDEV`, `vacuum` now copies the file (preserving permission bits) and
+      unlinks the original, so moves work across mount points. Covered by a test
+      that runs when a second filesystem is available.
+
 ## Remaining (optional)
 
-- [ ] **`EXDEV` (cross-filesystem) fallback.** A move across filesystems still
-      fails for that file (now reported and skipped rather than aborting). A
-      copy + unlink fallback would let `vacuum` work across mount points.
+- Nothing outstanding.

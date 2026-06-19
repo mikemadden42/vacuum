@@ -17,6 +17,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -140,6 +141,84 @@ static int is_regular_file(const char *path) {
     return S_ISREG(st.st_mode);
 }
 
+/*
+ * Move a file by copying its contents to `dst` and unlinking `src`, used as a
+ * fallback when rename() fails with EXDEV (src and dst on different
+ * filesystems). `dst` is created exclusively; the caller has already verified
+ * it does not exist. The source's permission bits are preserved. On failure a
+ * partial destination is removed and errno reflects the cause.
+ * Returns 0 on success, -1 on failure.
+ */
+static int copy_then_unlink(const char *src, const char *dst) {
+    int in = open(src, O_RDONLY);
+    if (in < 0) {
+        return -1;
+    }
+
+    struct stat st;
+    if (fstat(in, &st) != 0) {
+        int e = errno;
+        close(in);
+        errno = e;
+        return -1;
+    }
+
+    int out = open(dst, O_WRONLY | O_CREAT | O_EXCL, st.st_mode & 0777);
+    if (out < 0) {
+        int e = errno;
+        close(in);
+        errno = e;
+        return -1;
+    }
+
+    char buf[1 << 16];
+    for (;;) {
+        ssize_t n = read(in, buf, sizeof buf);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            goto fail;
+        }
+        if (n == 0) {
+            break;
+        }
+        for (ssize_t off = 0; off < n;) {
+            ssize_t w = write(out, buf + off, (size_t)(n - off));
+            if (w < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                goto fail;
+            }
+            off += w;
+        }
+    }
+
+    close(in);
+    if (close(out) != 0) {
+        int e = errno;
+        unlink(dst);
+        errno = e;
+        return -1;
+    }
+
+    if (unlink(src) != 0) {
+        /* Contents were copied but the original could not be removed. */
+        return -1;
+    }
+    return 0;
+
+fail: {
+    int e = errno;
+    close(in);
+    close(out);
+    unlink(dst);
+    errno = e;
+    return -1;
+}
+}
+
 static void usage(FILE *out) {
     fprintf(out,
             "Usage: %s [source_dir] [dest_base]\n"
@@ -253,12 +332,19 @@ int main(int argc, char **argv) {
             fprintf(stderr, "%s: cannot access '%s': %s\n", PROG, dest_path,
                     strerror(errno));
             had_error = 1;
-        } else if (rename(src_path, dest_path) != 0) {
-            fprintf(stderr, "%s: cannot move '%s' to '%s': %s\n", PROG,
-                    src_path, dest_path, strerror(errno));
-            had_error = 1;
         } else {
-            printf("Moved %s to %s\n", name, dest_dir);
+            int moved = (rename(src_path, dest_path) == 0);
+            if (!moved && errno == EXDEV) {
+                /* Different filesystems: fall back to copy + unlink. */
+                moved = (copy_then_unlink(src_path, dest_path) == 0);
+            }
+            if (moved) {
+                printf("Moved %s to %s\n", name, dest_dir);
+            } else {
+                fprintf(stderr, "%s: cannot move '%s' to '%s': %s\n", PROG,
+                        src_path, dest_path, strerror(errno));
+                had_error = 1;
+            }
         }
 
         free(dest_path);
