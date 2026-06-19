@@ -7,18 +7,35 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} / ${{ matrix.cc }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         cc: [gcc, clang]
-    env:
-      CC: ${{ matrix.cc }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.cc }}" = "gcc" ]; then
+            # macOS ships `gcc` as an alias for clang; install real GCC.
+            brew install gcc
+            cc=$(ls "$(brew --prefix)"/bin/gcc-[0-9]* | sort -V | tail -n1)
+          else
+            cc="${{ matrix.cc }}"
+          fi
+          echo "CC=$cc" >> "$GITHUB_ENV"
+          echo "Using CC=$cc"
+
+      - name: Compiler version
+        run: ${{ env.CC }} --version
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC"
 
       - name: Build
         run: cmake --build build

@@ -25,6 +25,16 @@ fail=0
 
 ok() { printf 'ok   - %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf 'FAIL - %s\n' "$1"; fail=$((fail + 1)); }
+skip() { printf 'skip - %s\n' "$1"; }
+
+# Portable stat helpers: GNU coreutils uses -c, BSD/macOS uses -f.
+if stat -c '%d' . >/dev/null 2>&1; then
+    stat_dev()  { stat -c '%d' "$1" 2>/dev/null; }   # filesystem device id
+    stat_mode() { stat -c '%a' "$1" 2>/dev/null; }   # permission bits (octal)
+else
+    stat_dev()  { stat -f '%d' "$1" 2>/dev/null; }
+    stat_mode() { stat -f '%Lp' "$1" 2>/dev/null; }
+fi
 
 # assert that a file exists
 assert_file() {
@@ -93,11 +103,10 @@ fi
 # --- cross-filesystem move (EXDEV fallback) ---
 # Needs a writable directory on a different filesystem; /dev/shm is the usual
 # candidate on Linux. Skipped when no second filesystem is available.
-skip() { printf 'skip - %s\n' "$1"; }
-xfs_dev() { stat -c '%d' "$1" 2>/dev/null; }
 otherfs=""
-for cand in /dev/shm /run/user/"$(id -u)"; do
-    if [[ -d "$cand" && -w "$cand" && "$(xfs_dev "$cand")" != "$(xfs_dev "$work")" ]]; then
+for cand in /dev/shm /run/user/"$(id -u)" /Volumes/RAMDisk "${TMPDIR:-}"; do
+    [[ -n "$cand" ]] || continue
+    if [[ -d "$cand" && -w "$cand" && "$(stat_dev "$cand")" != "$(stat_dev "$work")" ]]; then
         otherfs="$cand"; break
     fi
 done
@@ -111,8 +120,12 @@ if [[ -n "$otherfs" ]]; then
     assert_absent "$src/move.bin"            "EXDEV: source removed"
     [[ "$(cat "$dst/bin/move.bin" 2>/dev/null)" == "payload" ]] \
         && ok "EXDEV: content intact" || no "EXDEV: content intact"
-    [[ "$(stat -c '%a' "$dst/bin/move.bin" 2>/dev/null)" == "640" ]] \
-        && ok "EXDEV: permissions preserved" || no "EXDEV: permissions preserved"
+    mode=$(stat_mode "$dst/bin/move.bin")
+    if [[ "$mode" =~ ^[0-7]+$ ]] && (( 8#$mode == 8#640 )); then
+        ok "EXDEV: permissions preserved"
+    else
+        no "EXDEV: permissions preserved (got: $mode)"
+    fi
     rm -rf "$dst"
 else
     skip "EXDEV cross-filesystem move (no second filesystem available)"
