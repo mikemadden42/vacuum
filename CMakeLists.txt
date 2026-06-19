@@ -21,3 +21,9 @@ endif()
 
 include(GNUInstallDirs)
 install(TARGETS vacuum RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+enable_testing()
+add_test(
+    NAME functional
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.sh $<TARGET_FILE:vacuum>)

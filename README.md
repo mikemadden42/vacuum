@@ -23,12 +23,15 @@ This is a C17 port of an original Zig implementation.
 
 ```
 vacuum [source_dir] [dest_base]
+vacuum -h | --help
 ```
 
 | Argument     | Default       | Description                                          |
 | ------------ | ------------- | ---------------------------------------------------- |
 | `source_dir` | `.`           | Directory to scan for files.                         |
 | `dest_base`  | `Documents`   | Base directory under which extension folders are made. |
+
+`-h` / `--help` prints usage and exits.
 
 For every **regular, non-hidden** file in `source_dir`, the file is moved to
 `<dest_base>/<extension>/<filename>`. The destination directory is created if it
@@ -41,6 +44,10 @@ does not already exist.
 - Files without a usable extension (no `.`, or a trailing `.` only) are skipped.
 - If a file with the same name already exists at the destination, it is left in
   place and a message is printed instead of overwriting.
+- The directory listing is snapshotted before any moves, so files are never
+  lost to mutating the directory mid-iteration.
+- A failure to move one file is reported but does not stop the run; remaining
+  files are still processed and the program exits non-zero.
 
 > **Note:** Files are moved with `rename(2)`, so `source_dir` and `dest_base`
 > should live on the same filesystem. Paths are resolved relative to the current
@@ -86,6 +93,16 @@ cmake --install build            # honors CMAKE_INSTALL_PREFIX
 cc -std=c17 -Wall -Wextra -o vacuum vacuum.c
 ```
 
+## Testing
+
+The functional tests are a shell script that exercises the built binary:
+
+```sh
+ctest --test-dir build --output-on-failure   # via CMake
+# or run it directly against any binary:
+./tests/run.sh build/vacuum
+```
+
 ## Requirements
 
 - A C17 compiler (GCC or Clang).
@@ -93,4 +110,4 @@ cc -std=c17 -Wall -Wextra -o vacuum vacuum.c
 
 ## License
 
-See repository for license details.
+Released under the [MIT License](LICENSE).
